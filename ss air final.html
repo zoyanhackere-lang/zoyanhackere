@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Air Hockey – Win + Confetti</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{margin:0;overflow:hidden;background:#000;font-family:Arial}
+#score{position:fixed;top:10px;left:50%;transform:translateX(-50%);color:#fff;font-size:20px;z-index:10}
+#soundBtn,#pauseBtn{position:fixed;left:50%;transform:translateX(-50%);padding:8px 16px;font-size:16px;z-index:10}
+#soundBtn{top:50px} #pauseBtn{top:100px}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;flex-direction:column;color:#fff;z-index:30}
+#confetti{position:absolute;inset:0}
+</style>
+</head>
+<body>
+
+<div id="score">Player: 0 | AI: 0</div>
+<button id="soundBtn">🔊 Sound ON</button>
+<button id="pauseBtn">⏸ Pause</button>
+
+<div id="pauseMenu" class="overlay">
+  <h1>⏸ Paused</h1>
+  <button onclick="resumeGame()">▶ Resume</button>
+  <button onclick="restartGame()">🔄 Restart</button>
+</div>
+
+<div id="winScreen" class="overlay">
+  <canvas id="confetti"></canvas>
+  <h1 id="winText"></h1>
+  <button onclick="restartGame()">🔄 Restart</button>
+</div>
+
+<audio id="hitSound" src="air hockey (2).mp3"></audio>
+<audio id="goalSound" src="hit sound.mp3"></audio>
+<audio id="bgMusic" src="hit sound.mp3" loop></audio>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script>
+// ===== AUDIO =====
+const hitSound=hitSoundElem= document.getElementById("hitSound");
+const goalSound=document.getElementById("goalSound");
+const bgMusic=document.getElementById("bgMusic");
+bgMusic.volume=.4;
+let soundOn=true;
+
+soundBtn.onclick=()=>{
+  soundOn=!soundOn;
+  soundBtn.innerText=soundOn?"🔊 Sound ON":"🔇 Sound OFF";
+  soundOn?bgMusic.play():bgMusic.pause();
+};
+document.addEventListener("click",()=>{ if(soundOn && bgMusic.paused) bgMusic.play();},{once:true});
+
+// ===== PAUSE =====
+let paused=false;
+pauseBtn.onclick=()=>{
+  paused=!paused;
+  pauseMenu.style.display=paused?"flex":"none";
+  pauseBtn.innerText=paused?"▶ Resume":"⏸ Pause";
+  paused?bgMusic.pause():soundOn&&bgMusic.play();
+};
+function resumeGame(){
+  paused=false; pauseMenu.style.display="none"; pauseBtn.innerText="⏸ Pause";
+  if(soundOn) bgMusic.play();
+}
+
+// ===== THREE.JS =====
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x111111);
+const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,.1,1000);
+camera.position.set(0,15,20); camera.lookAt(0,0,0);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight); document.body.appendChild(renderer.domElement);
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+scene.add(new THREE.AmbientLight(0xffffff,.6));
+const light=new THREE.DirectionalLight(0xffffff,.6); light.position.set(10,20,10); scene.add(light);
+
+// Table
+scene.add(new THREE.Mesh(new THREE.BoxGeometry(20,1,10),new THREE.MeshStandardMaterial({color:0x0044ff})));
+// Ball
+const ball=new THREE.Mesh(new THREE.SphereGeometry(.7,32,32),new THREE.MeshStandardMaterial({color:0xffffff}));
+ball.position.y=1; scene.add(ball);
+// Player
+const paddle=new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.2,.5,32),new THREE.MeshStandardMaterial({color:0x00ffcc}));
+paddle.position.set(-8,1,0); scene.add(paddle);
+// AI
+const aiPaddle=new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.2,.5,32),new THREE.MeshStandardMaterial({color:0xff4444}));
+aiPaddle.position.set(8,1,0); scene.add(aiPaddle);
+
+// ===== GAME =====
+let speedX=.14, speedZ=.12;
+let playerScore=0, aiScore=0;
+let aiDifficulty=.15;
+const WIN_SCORE=5;
+let gameOver=false;
+
+function updateScore(){ score.innerText=`Player: ${playerScore} | AI: ${aiScore}`; }
+function resetBall(){ ball.position.set(0,1,0); speedX*=-1; }
+
+function predictZ(){
+  if(speedX>0){
+    let t=(aiPaddle.position.x-ball.position.x)/speedX;
+    let z=ball.position.z+speedZ*t;
+    while(z>4||z<-4) z=z>4?8-z:-8-z;
+    return z;
+  } return 0;
+}
+
+// Controls
+function movePlayer(y){ paddle.position.z=(y/innerHeight-.5)*10; }
+addEventListener("mousemove",e=>movePlayer(e.clientY));
+addEventListener("touchmove",e=>{e.preventDefault();movePlayer(e.touches[0].clientY);},{passive:false});
+
+// ===== WIN + CONFETTI =====
+const winScreen=document.getElementById("winScreen");
+const winText=document.getElementById("winText");
+const confettiCanvas=document.getElementById("confetti");
+const ctx=confettiCanvas.getContext("2d");
+confettiCanvas.width=innerWidth; confettiCanvas.height=innerHeight;
+let confetti=[];
+
+function startConfetti(){
+  confetti=[];
+  for(let i=0;i<200;i++){
+    confetti.push({x:Math.random()*confettiCanvas.width,y:Math.random()*confettiCanvas.height,
+      r:Math.random()*6+2,dy:Math.random()*4+2,color:`hsl(${Math.random()*360},100%,50%)`});
+  }
+  drawConfetti();
+}
+function drawConfetti(){
+  if(!gameOver) return;
+  ctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height);
+  confetti.forEach(p=>{ctx.beginPath();ctx.fillStyle=p.color;ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+    p.y+=p.dy; if(p.y>confettiCanvas.height) p.y=0;});
+  requestAnimationFrame(drawConfetti);
+}
+function checkWin(){
+  if(playerScore>=WIN_SCORE) showWin("🏆 YOU WIN!");
+  if(aiScore>=WIN_SCORE) showWin("🤖 AI WINS!");
+}
+function showWin(text){
+  gameOver=true; winText.innerText=text; winScreen.style.display="flex";
+  startConfetti(); bgMusic.pause();
+}
+function restartGame(){
+  playerScore=0; aiScore=0; updateScore(); resetBall();
+  gameOver=false; paused=false;
+  winScreen.style.display="none"; pauseMenu.style.display="none";
+  ctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height);
+  if(soundOn) bgMusic.play();
+}
+
+// ===== LOOP =====
+function animate(){
+  requestAnimationFrame(animate);
+  if(paused||gameOver) return;
+
+  ball.position.x+=speedX; ball.position.z+=speedZ;
+  if(ball.position.z>4||ball.position.z<-4) speedZ*=-1;
+
+  if(Math.abs(ball.position.x-paddle.position.x)<1.4 && Math.abs(ball.position.z-paddle.position.z)<1.4){
+    speedX=Math.abs(speedX); if(soundOn){hitSound.currentTime=0;hitSound.play();}
+  }
+
+  aiPaddle.position.z+=(predictZ()-aiPaddle.position.z)*aiDifficulty;
+
+  if(Math.abs(ball.position.x-aiPaddle.position.x)<1.4 && Math.abs(ball.position.z-aiPaddle.position.z)<1.4){
+    speedX=-Math.abs(speedX); if(soundOn){hitSound.currentTime=0;hitSound.play();}
+  }
+
+  if(ball.position.x>9){ playerScore++; updateScore(); resetBall(); if(soundOn)goalSound.play(); checkWin(); }
+  if(ball.position.x<-9){ aiScore++; updateScore(); resetBall(); if(soundOn)goalSound.play(); checkWin(); }
+
+  renderer.render(scene,camera);
+}
+animate();
+</script>
+</body>
+</html>
